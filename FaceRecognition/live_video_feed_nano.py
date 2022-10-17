@@ -2,10 +2,13 @@ import cv2
 import face_recognition
 import time
 from facial_library import FacialLibrary
+from jetson_utils import videoSource, videoOutput, cudaFromNumpy, cudaToNumpy
 
 #face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
-cap = cv2.VideoCapture(0)
+#cap = cv2.VideoCapture(0)
+cap = videoSource()
+output = videoOutput()
 
 method = 'fr_CNN'
 #method = 'cv2'
@@ -14,12 +17,17 @@ method = 'fr_CNN'
 start_time = time.time()
 num_frames = 0
 
-face_lib = FacialLibrary(r'/home/andrew/robotics/FaceRecognition/library')
+face_lib = FacialLibrary(r'/home/andy/robotics/FaceRecognition/library', detect_method='HC')
 
 while True:
     num_frames += 1
 
-    ret, frame = cap.read()
+    #ret, frame = cap.read()
+    cuda_img = cap.Capture()
+    frame = cudaToNumpy(cuda_img)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+    #print(type(frame))
 
     people_found = face_lib.identify_faces(frame)
 
@@ -68,14 +76,9 @@ while True:
     #     for (x, y, w, h) in faces:
     #         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-    cv2.imshow(method, frame)
-
-    key = cv2.waitKey(1)
-    if key == 27:
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+    #cv2.imshow(method, frame)
+    cudaOut = cudaFromNumpy(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    output.Render(cudaOut)
 
 
 # img = cv2.imread(r'/home/andrew/Vision Experiments/Kerry/2021-06-16_11-30-05_432.jpg')

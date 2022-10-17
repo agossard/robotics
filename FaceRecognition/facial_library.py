@@ -2,11 +2,11 @@ import cv2
 import os
 import numpy as np
 import face_recognition
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 import time
 import pickle
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
+# from sklearn.cluster import DBSCAN
+# from sklearn.neighbors import NearestNeighbors
 import math
 
 encoding_method = 'CNN'
@@ -14,17 +14,18 @@ face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 class FacialLibrary():
     def __init__(self,  base_dir: str,
-                        method: str='fr_CNN',
+                        encoding_method: str='CNN',
+                        detect_method: str='HC',
                         scale_factor=0.25,
                         dbscan_thresh=0.42):
         self._base_dir = base_dir
-        self._method = method
+        self._detect_method = detect_method
         self._scale_factor = scale_factor
         self._dbscan_thresh = dbscan_thresh
         self._all_embeddings = os.path.join(base_dir, 'all_embeddings.pkl')
         self._train_dir = os.path.join(base_dir, 'train')
         self._clusters = os.path.join(base_dir, 'clusters')
-        self._encoding_method = method.split('_')[1]
+        self._encoding_method = encoding_method
         self._thresh = 0.6
 
         self._embeddings_file = 'embeddings.pkl'
@@ -76,10 +77,9 @@ class FacialLibrary():
 
         faces_out = []
 
-        if 'fr' in self._method:
-            model = self._method.split('_')[1]
+        if self._detect_method == 'CNN':
             frame_rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
-            face_locs = face_recognition.face_locations(frame_rgb, model=model)
+            face_locs = face_recognition.face_locations(frame_rgb, model=self._detect_method)
 
             for (y, x2, y2, x) in face_locs:
                 faces_out.append((x, y, x2, y2))
