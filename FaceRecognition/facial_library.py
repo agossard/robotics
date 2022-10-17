@@ -24,6 +24,8 @@ class FacialLibrary():
         self._all_embeddings = os.path.join(base_dir, 'all_embeddings.pkl')
         self._train_dir = os.path.join(base_dir, 'train')
         self._clusters = os.path.join(base_dir, 'clusters')
+        self._encoding_method = method.split('_')[1]
+        self._thresh = 0.6
 
         self._embeddings_file = 'embeddings.pkl'
 
@@ -32,9 +34,43 @@ class FacialLibrary():
             for cluster_name in os.listdir(self._clusters):
                 if os.path.isdir(os.path.join(self._clusters, cluster_name)):
                     emb_name = os.path.join(self._clusters, cluster_name, self._embeddings_file)
-                    self.face_embeddings[cluster_name] = pickle.load(open(emb_name, 'rb'))
+                    embeddings = pickle.load(open(emb_name, 'rb'))
+                    self.face_embeddings[cluster_name] = np.mean(embeddings, axis=0)
         else:
             self.face_embeddings = []
+
+    def identify_face(self, img, thresh=None, nearest=False):
+        thresh = self._thresh if thresh is None else thresh
+
+        emb = face_recognition.face_encodings(img,
+                                              known_face_locations=[(0, img.shape[1], img.shape[0], 0)],
+                                              model=self._encoding_method)
+        emb = emb[0]
+
+        if nearest:
+            distances = np.array([math.dist(emb, p_emb) for person, p_emb in self.face_embeddings.items()])
+            min_ind = np.argmin(distances)[0]
+            return self.face_embeddings.keys()[min_ind]
+
+        else:
+            for person, p_emb in self.face_embeddings.items():
+                if math.dist(emb, p_emb) < thresh:
+                    return person
+
+        return ""
+
+    def identify_faces(self, img_raw, thresh=None, nearest=False):
+        faces = self.detect_faces(img_raw)
+
+        img_raw = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
+
+        people_found = []
+
+        for face in faces:
+            img_cropped = self.crop_face(img_raw, face)
+            people_found.append((self.identify_face(img_cropped, thresh, nearest), face))
+
+        return people_found
 
     def detect_faces(self, img_raw):
 
@@ -63,13 +99,16 @@ class FacialLibrary():
             self.display_face(face)
             cv2.waitKey(0)
 
+    def crop_face(self, img, face_loc):
+        x, y, x2, y2 = face_loc
+        return img[y:y2, x:x2, :]
+
     def get_face(self, face):
         img = cv2.imread(os.path.join(self._train_dir, face['f_name']))
         img = cv2.resize(img, (int(img.shape[1] * self._scale_factor), int(img.shape[0] * self._scale_factor)),
                          interpolation=cv2.INTER_AREA)
 
-        x, y, x2, y2 = face['loc']
-        return img[y:y2, x:x2, :]
+        return self.crop_face(img, face['loc'])
 
     def display_face(self, face, caption="face"):
         img = cv2.imread(os.path.join(self._train_dir, face['f_name']))
