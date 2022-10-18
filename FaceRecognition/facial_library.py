@@ -15,7 +15,7 @@ face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 class FacialLibrary():
     def __init__(self,  base_dir: str,
                         encoding_method: str='CNN',
-                        detect_method: str='HC',
+                        detect_method: str='CNN',
                         scale_factor=0.25,
                         dbscan_thresh=0.42):
         self._base_dir = base_dir
@@ -37,8 +37,12 @@ class FacialLibrary():
                     emb_name = os.path.join(self._clusters, cluster_name, self._embeddings_file)
                     embeddings = pickle.load(open(emb_name, 'rb'))
                     self.face_embeddings[cluster_name] = np.mean(embeddings, axis=0)
+                    print('Read embeddings for cluster: {}'.format(cluster_name))
         else:
             self.face_embeddings = []
+
+    def face_distance(self, f1, f2):
+        return face_recognition.face_distance(np.expand_dims(f1, axis=1).T, np.expand_dims(f2, axis=1).T).item()
 
     def identify_face(self, img, thresh=None, nearest=False):
         thresh = self._thresh if thresh is None else thresh
@@ -49,13 +53,14 @@ class FacialLibrary():
         emb = emb[0]
 
         if nearest:
-            distances = np.array([math.dist(emb, p_emb) for person, p_emb in self.face_embeddings.items()])
-            min_ind = np.argmin(distances)[0]
-            return self.face_embeddings.keys()[min_ind]
+            distances = np.array([self.face_distance(emb, p_emb) for person, p_emb in self.face_embeddings.items()])
+            min_ind = np.argmin(distances)
+            keys = [key for key in self.face_embeddings.keys()]
+            return keys[min_ind]
 
         else:
             for person, p_emb in self.face_embeddings.items():
-                if math.dist(emb, p_emb) < thresh:
+                if self.face_distance(emb, p_emb) < thresh:
                     return person
 
         return ""
@@ -129,7 +134,7 @@ class FacialLibrary():
         cv2.waitKey(0)
 
         for face in embeddings:
-            distance = math.dist(target_face['embedding'], face['embedding'])
+            distance = self.face_distance(target_face['embedding'], face['embedding'])
             self.display_face(face, 'Distance: {}'.format(round(distance, 2)))
             cv2.waitKey(0)
 
