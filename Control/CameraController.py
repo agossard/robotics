@@ -1,97 +1,75 @@
-# SDA = pin.SDA_1
-# SCL = pin.SCL_1
-# SDA_1 = pin.SDA
-# SCL_1 = pin.SCL
 
 from adafruit_servokit import ServoKit
 import board
 import busio
 import time
-#from approxeng.input.selectbinder import ControllerResource
 
+class CameraController():
 
-# On the Jetson Nano
-# Bus 0 (pins 28,27) is board SCL_1, SDA_1 in the jetson board definition file
-# Bus 1 (pins 5, 3) is board SCL, SDA in the jetson definition file
-# Default is to Bus 1; We are using Bus 0, so we need to construct the busio first ...
-print("Initializing Servos")
-#i2c_bus0=(busio.I2C(board.SCL_1, board.SDA_1))
-i2c_bus1=(busio.I2C(board.SCL, board.SDA))
-print("Initializing ServoKit")
-kit = ServoKit(channels=16, i2c=i2c_bus1)
-print('Initialized')
+    def __init__(self, bus=0, pan_servo=0, tilt_servo=3):
+        self._pan_servo = pan_servo
+        self._tilt_servo = tilt_servo
 
-# delay = 0.01
+        if bus == 0:
+            i2c_bus = (busio.I2C(board.SCL_1, board.SDA_1))
+        else:
+            i2c_bus = (busio.I2c(board.SCL, board.SDA))
 
-# for its in range(0, 3):
-#     the_range = range(100, 180)
+        self._kit = ServoKit(channels=16, i2c=i2c_bus)
 
-#     for i in the_range:
-#         kit.servo[3].angle = i
-#         kit.servo[0].angle = i
-#         time.sleep(delay)
+        self._pan_points =  {"min": 80,
+                             "mid": 120,
+                             "max": 180 }
 
-#     the_range = range(180, 100, -1)
+        self._tilt_points = {"min": 80,
+                             "home": 90,
+                             "mid": 120,
+                             "max": 180 }
 
-#     for i in the_range:
-#         kit.servo[3].angle = i
-#         kit.servo[0].angle = i
-#         time.sleep(delay)
+        self.pan_angle = self._pan_points["mid"]
+        self.tilt_angle = self._tilt_points["mid"]
 
+    def update(self):
+        self._kit.servo[self._pan_servo].angle = self.pan_angle
+        self._kit.servo[self._tilt_servo].angle = self.tilt_angle
 
-while True:
-    angle = input()
+    def PanHome(self):
+        self.pan_angle = self._pan_points["mid"]
+        self.update()
 
-    commands = angle.split(' ')
-    angle = commands[1]
-    servo = commands[0]
+    def TiltHome(self):
+        self.tilt_angle = self._tilt_points["home"]
+        self.update()
 
-    if angle == 'q':
-        break
+    def _check_angle(self, points, degrees):
+        return degrees >= points["min"] and degrees <= points["max"]
 
-    print('Setting {} to angle {} degrees'.format(servo, angle))
-    if servo == "tilt":
-        kit.servo[3].angle = int(angle)
-    else:
-        kit.servo[0].angle = int(angle)
+    def SetPanAngle(self, degrees):
+        if self._check_angle(self._pan_points, degrees):
+            self.pan_angle = degrees
+            self.update()
 
-# kit[0] is the bottom servo
-# kit[1] is the top serv
-# print("Done initializing")
+    def SetTiltAngle(self, degrees):
+        if self._check_angle(self._tilt_points, degrees):
+            self.tilt_angle = degrees
+            self.update()
 
-# for i in range(0,5):
+    def PanRight(self, degrees=1):
+        if self._check_angle(self._pan_points, self.pan_angle + degrees):
+            self.pan_angle += degrees
+            self.update()
 
-#     print('Iteration {}'.format(i))
+    def PanLeft(self, degrees=1):
+        if self._check_angle(self._pan_points, self.tilt_angle - degrees):
+            self.pan_angle -= degrees
+            self.update()
 
-#     sweep = range(0,180)
-#     for degree in sweep :
-#         kit.servo[0].angle=degree
-#         # kit.servo[1].angle=degree
-#         time.sleep(0.01)
+    def TiltUp(self, degrees=1):
+        if self._check_angle(self._tilt_points, self.tilt_angle + degrees):
+            self.tilt_angle += degrees
+            self.update()
 
-#     #time.sleep(2)
-#     sweep = range(180,0, -1)
-#     for degree in sweep :
-#         kit.servo[0].angle=degree
-#         time.sleep(0.01)
-    
-# last_presses = None
-# while True:
-#        with ControllerResource() as joystick:
-#            print(type(joystick).__name__)
-#            while joystick.connected:
-#                 axis_list = [ 'lx', 'ry' ]
-#                 for axis_name in axis_list:
-#                     # desired_angle is in degrees
-#                     joystick_value = joystick[axis_name]
-#                     # The joystick value goes from -1.0 ... 1.0 (a range of 2)
-#                     # Normalize within a range of 180 degrees
-#                     desired_angle = (joystick_value+1)/2*180
-                    
-#                     if  axis_name == 'lx' :
-#                         kit.servo[0].angle=desired_angle
-#                         # print(axis_name, joystick[axis_name])
-                        
-#                     if axis_name == 'ry' :
-#                          kit.continuous_servo[1].throttle=joystick[axis_name]
-            
+    def TiltDown(self, degrees=1):
+        if self._check_angle(self._tilt_points, self.tilt_angle - degrees):
+            self.tilt_angle -= degrees
+            self.update()
