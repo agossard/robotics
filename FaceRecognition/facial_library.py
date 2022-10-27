@@ -2,11 +2,11 @@ import cv2
 import os
 import numpy as np
 import face_recognition
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 import time
 import pickle
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
+# from sklearn.cluster import DBSCAN
+# from sklearn.neighbors import NearestNeighbors
 import math
 
 encoding_method = 'CNN'
@@ -14,20 +14,33 @@ face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 class FacialLibrary():
     def __init__(self,  base_dir: str,
-                        method: str='fr_CNN',
+                        encoding_method: str='CNN',
+                        detect_method: str='CNN',
                         scale_factor=0.25,
-                        dbscan_thresh=0.42):
+                        dbscan_thresh=0.42,
+                        tracking_tol=20,
+                        log_face_dir=None):
         self._base_dir = base_dir
-        self._method = method
+        self._detect_method = detect_method
         self._scale_factor = scale_factor
         self._dbscan_thresh = dbscan_thresh
         self._all_embeddings = os.path.join(base_dir, 'all_embeddings.pkl')
         self._train_dir = os.path.join(base_dir, 'train')
         self._clusters = os.path.join(base_dir, 'clusters')
-        self._encoding_method = method.split('_')[1]
+        self._encoding_method = encoding_method
         self._thresh = 0.6
+        self._log_face_dir = log_face_dir
 
         self._embeddings_file = 'embeddings.pkl'
+
+        # This will we a list of [("name", (x, y))]
+        self._current_faces = dict()
+        self._tracking_tol = tracking_tol
+
+        self._face_tracking_id = 0
+
+        if self._log_face_dir is not None and not os.path.isdir(self._log_face_dir):
+            os.mkdir(self._log_face_dir)
 
         if os.path.isdir(self._clusters):
             self.face_embeddings = dict()
@@ -36,11 +49,49 @@ class FacialLibrary():
                     emb_name = os.path.join(self._clusters, cluster_name, self._embeddings_file)
                     embeddings = pickle.load(open(emb_name, 'rb'))
                     self.face_embeddings[cluster_name] = np.mean(embeddings, axis=0)
+                    print('Read embeddings for cluster: {} from {}'.format(cluster_name, emb_name))
         else:
             self.face_embeddings = []
 
+    def face_distance(self, f1, f2):
+        return face_recognition.face_distance(np.expand_dims(f1, axis=1).T, np.expand_dims(f2, axis=1).T).item()
+
+    def keep_faces(self, faces):
+        new_current_faces = dict()
+        for face, (x, y) in self._current_faces.items():
+            if face in faces:
+                new_current_faces[face] = (x, y)
+
+        self._current_faces = new_current_faces
+
+    def track_face(self, face, x, y):
+        self._current_faces[face] = (x, y)
+
+    def check_recent_face(self, x, y):
+        face_dists = []
+        min_dist = 10000
+        min_face = ""
+        for face, (x_, y_) in self._current_faces.items():
+            dist = math.sqrt((x - x_)**2 + (y - y_)**2)
+            if dist < min_dist:
+                min_dist = dist
+                min_face = face
+        
+        if min_dist < self._tracking_tol:   
+            self._current_faces[min_face] = (x, y)
+            return min_face
+        else:
+            return ""
+
     def identify_face(self, img, thresh=None, nearest=False):
         thresh = self._thresh if thresh is None else thresh
+
+        if self._log_face_dir is not None:
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            f_name = os.path.join(self._log_face_dir, '{}.jpg'.format(self._face_tracking_id))
+            print('Logging image to {}'.format(f_name))
+            cv2.imwrite(f_name, img_bgr)
+            self._face_tracking_id += 1
 
         emb = face_recognition.face_encodings(img,
                                               known_face_locations=[(0, img.shape[1], img.shape[0], 0)],
@@ -48,13 +99,19 @@ class FacialLibrary():
         emb = emb[0]
 
         if nearest:
-            distances = np.array([math.dist(emb, p_emb) for person, p_emb in self.face_embeddings.items()])
-            min_ind = np.argmin(distances)[0]
-            return self.face_embeddings.keys()[min_ind]
+            distances = np.array([self.face_distance(emb, p_emb) for person, p_emb in self.face_embeddings.items()])
+            min_ind = np.argmin(distances)
+            keys = [key for key in self.face_embeddings.keys()]
+
+            print('Distances:')
+            for i, key in enumerate(keys):
+                print('  {}: {}'.format(key, round(distances[i], 2)))
+
+            return keys[min_ind] if distances[min_ind] < thresh else ""
 
         else:
             for person, p_emb in self.face_embeddings.items():
-                if math.dist(emb, p_emb) < thresh:
+                if self.face_distance(emb, p_emb) < thresh:
                     return person
 
         return ""
@@ -76,10 +133,9 @@ class FacialLibrary():
 
         faces_out = []
 
-        if 'fr' in self._method:
-            model = self._method.split('_')[1]
+        if self._detect_method == 'CNN':
             frame_rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
-            face_locs = face_recognition.face_locations(frame_rgb, model=model)
+            face_locs = face_recognition.face_locations(frame_rgb, model=self._detect_method)
 
             for (y, x2, y2, x) in face_locs:
                 faces_out.append((x, y, x2, y2))
@@ -129,7 +185,7 @@ class FacialLibrary():
         cv2.waitKey(0)
 
         for face in embeddings:
-            distance = math.dist(target_face['embedding'], face['embedding'])
+            distance = self.face_distance(target_face['embedding'], face['embedding'])
             self.display_face(face, 'Distance: {}'.format(round(distance, 2)))
             cv2.waitKey(0)
 
