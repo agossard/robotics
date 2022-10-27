@@ -3,7 +3,7 @@ import cv2
 import face_recognition
 import time
 from FaceRecognition.facial_library import FacialLibrary
-from jetson_utils import videoSource, videoOutput, cudaFromNumpy, cudaToNumpy, cudaFont
+from jetson_utils import videoSource, videoOutput, cudaFromNumpy, cudaToNumpy, cudaFont, cudaDrawRect
 from jetson_inference import poseNet
 import argparse
 import sys
@@ -11,6 +11,29 @@ import numpy as np
 import math
 
 from Control.CameraController import CameraController
+
+def get_target_point(pose, which_target):
+    if which_target == "eyes":
+        left_eye_idx = pose.FindKeypoint('left_eye')
+        right_eye_idx = pose.FindKeypoint('right_eye')
+
+        if left_eye_idx >= 0 and right_eye_idx >= 0:
+            # Found two eyes in the image
+            left_eye = pose.Keypoints[left_eye_idx]
+            right_eye = pose.Keypoints[right_eye_idx]
+
+            mid_x = (left_eye.x + right_eye.x) / 2
+            mid_y = (left_eye.y + right_eye.y) / 2
+        
+            return (mid_x, mid_y)
+    else:
+        idx = pose.FindKeypoint(which_target)
+
+        if idx >= 0:
+            pt = pose.Keypoints[idx]
+            return (pt.x, pt.y)
+
+    return (-1, -1)
 
 dlib.DLIB_USE_CUDA = True
 
@@ -24,13 +47,14 @@ method = 'fr_CNN'
 #method = 'cv2'
 #method = 'fr_HOG'
 
-do_face_recognition = False
+do_face_recognition = True
 do_face_track = True
 
-pan_speed = 3
-tilt_speed = 3
+pan_full = 25
+tilt_full = 15
 look_tol = 50
 
+track_target = "eyes"
 
 identify_counter = 20
 
@@ -39,7 +63,9 @@ scale_factor = 0.25
 camera_controller = CameraController()
 camera_controller.update()
 
-face_lib = FacialLibrary(r'/home/andy/robotics/FaceRecognition/library', tracking_tol=100)
+face_lib = FacialLibrary(   r'/home/andy/robotics/FaceRecognition/library', 
+                            tracking_tol=100,
+                            log_face_dir=r'/home/andy/robotics/FaceRecognition/logging')
 
 font = cudaFont()
 
@@ -75,7 +101,7 @@ while True:
 
     # perform pose estimation (with overlay)
     #poses = net.Process(img, overlay=opt.overlay)
-    poses = net.Process(img, overlay=opt.overlay)
+    poses = net.Process(img, overlay="none")
 
     if start_time == 0:
         start_time = time.time()
@@ -93,54 +119,64 @@ while True:
         # print(pose.Keypoints)
         # print('Links', pose.Links)
 
-        left_eye_idx = pose.FindKeypoint('left_eye')
-        right_eye_idx = pose.FindKeypoint('right_eye')
+        if do_face_track:
+            mid_x, mid_y = get_target_point(pose, track_target)
 
-        if left_eye_idx >= 0 and right_eye_idx >= 0:
-            # Found two eyes in the image
-            left_eye = pose.Keypoints[left_eye_idx]
-            right_eye = pose.Keypoints[right_eye_idx]
-
-            mid_x = (left_eye.x + right_eye.x) / 2
-            mid_y = (left_eye.y + right_eye.y) / 2
-
-            if do_face_track:
+            if mid_x >= 0 and mid_y >= 0:
                 center_x = img.width / 2
                 center_y = img.height / 2
 
                 print("Center ({}, {})".format(round(center_x), round(center_y)))
                 print("Eye    ({}, {})".format(round(mid_x), round(mid_y)))
                 
+                x_dist = np.abs(center_x - mid_x)
+                y_dist = np.abs(center_y - mid_y)
+
+                x_degrees = int(x_dist / center_x * pan_full)
+                y_degrees = int(y_dist / center_y * tilt_full)
+
+                print('Panning {}, Tilting {}'.format(x_degrees, y_degrees))
 
                 if center_x - mid_x > look_tol:
-                    camera_controller.PanLeft(degrees=pan_speed, do_update=False)
+                    camera_controller.PanLeft(degrees=x_degrees, do_update=False)
                 elif center_x - mid_x < -look_tol:
-                    camera_controller.PanRight(degrees=pan_speed, do_update=False)
+                    camera_controller.PanRight(degrees=x_degrees, do_update=False)
 
                 if center_y - mid_y > look_tol:
-                    camera_controller.TiltUp(degrees=pan_speed, do_update=False)
+                    camera_controller.TiltUp(degrees=y_degrees, do_update=False)
                 elif center_y - mid_y < -look_tol:
-                    camera_controller.TiltDown(degrees=pan_speed, do_update=False)
+                    camera_controller.TiltDown(degrees=y_degrees, do_update=False)
 
                 camera_controller.update()
                 camera_controller.dump()
 
-            if do_face_recognition:
+        if do_face_recognition:
+
+            left_eye_idx = pose.FindKeypoint('left_eye')
+            right_eye_idx = pose.FindKeypoint('right_eye')
+
+            if left_eye_idx >= 0 and right_eye_idx >= 0:
+                # Found two eyes in the image
+                left_eye = pose.Keypoints[left_eye_idx]
+                right_eye = pose.Keypoints[right_eye_idx]
+
+                mid_x = (left_eye.x + right_eye.x) / 2
+                mid_y = (left_eye.y + right_eye.y) / 2
 
                 face = face_lib.check_recent_face(mid_x, mid_y)
             
+                eye_w = np.abs(left_eye.x - right_eye.x)
+                eye_h = eye_w * 2
+
+                # Eyes are from the perspective of the person, not the viewer
+                # Left eye is on the right side of the screen if the person is looking at you...
+                x1 = int(right_eye.x - eye_w)
+                x2 = int(left_eye.x + eye_w)
+                y1 = int(np.min((right_eye.y, left_eye.y)) - eye_h)
+                y2 = int(np.max((right_eye.y, left_eye.y)) + eye_h)
+
                 # Do Facial Recognition
                 if face == "": #or num_frames % identify_counter == 0:
-                    eye_w = np.abs(left_eye.x - right_eye.x)
-                    eye_h = np.abs(left_eye.y - right_eye.y)
-
-                    # Eyes are from the perspective of the person, not the viewer
-                    # Left eye is on the right side of the screen if the person is looking at you...
-                    x1 = int(right_eye.x - eye_w)
-                    x2 = int(left_eye.x + eye_w)
-                    y1 = int(right_eye.y - eye_h)
-                    y2 = int(left_eye.y + eye_h)
-
                     # print('Left Eye: ({}, {})'.format(round(left_eye.x), round(left_eye.y)))
                     # print('Right Eye: ({}, {})'.format(round(right_eye.x), round(right_eye.y))
                     # print('Face Coords: ({}, {}), ({}, {})'.format(x1, y1, x2, y2))
@@ -163,10 +199,10 @@ while True:
 
                     face_lib.track_face(face, mid_x, mid_y)
 
-        if do_face_recognition:    
-            if face != "":
-                font.OverlayText(img, img.width, img.height, face, int(right_eye.x), np.max((0, int(right_eye.y-100))), font.White, font.Gray40)
-                found_faces.append(face)
+                if face != "":
+                    cudaDrawRect(img, (x1, y1, x2, y2), (255, 0, 0, 50))
+                    font.OverlayText(img, img.width, img.height, face, int(right_eye.x), np.max((0, int(right_eye.y-100))), font.White, font.Gray40)
+                    found_faces.append(face)
 
     face_lib.keep_faces(found_faces)
 

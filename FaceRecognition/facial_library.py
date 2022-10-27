@@ -18,7 +18,8 @@ class FacialLibrary():
                         detect_method: str='CNN',
                         scale_factor=0.25,
                         dbscan_thresh=0.42,
-                        tracking_tol=20):
+                        tracking_tol=20,
+                        log_face_dir=None):
         self._base_dir = base_dir
         self._detect_method = detect_method
         self._scale_factor = scale_factor
@@ -28,12 +29,18 @@ class FacialLibrary():
         self._clusters = os.path.join(base_dir, 'clusters')
         self._encoding_method = encoding_method
         self._thresh = 0.6
+        self._log_face_dir = log_face_dir
 
         self._embeddings_file = 'embeddings.pkl'
 
         # This will we a list of [("name", (x, y))]
         self._current_faces = dict()
         self._tracking_tol = tracking_tol
+
+        self._face_tracking_id = 0
+
+        if self._log_face_dir is not None and not os.path.isdir(self._log_face_dir):
+            os.mkdir(self._log_face_dir)
 
         if os.path.isdir(self._clusters):
             self.face_embeddings = dict()
@@ -42,7 +49,7 @@ class FacialLibrary():
                     emb_name = os.path.join(self._clusters, cluster_name, self._embeddings_file)
                     embeddings = pickle.load(open(emb_name, 'rb'))
                     self.face_embeddings[cluster_name] = np.mean(embeddings, axis=0)
-                    print('Read embeddings for cluster: {}'.format(cluster_name))
+                    print('Read embeddings for cluster: {} from {}'.format(cluster_name, emb_name))
         else:
             self.face_embeddings = []
 
@@ -78,6 +85,13 @@ class FacialLibrary():
 
     def identify_face(self, img, thresh=None, nearest=False):
         thresh = self._thresh if thresh is None else thresh
+
+        if self._log_face_dir is not None:
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            f_name = os.path.join(self._log_face_dir, '{}.jpg'.format(self._face_tracking_id))
+            print('Logging image to {}'.format(f_name))
+            cv2.imwrite(f_name, img_bgr)
+            self._face_tracking_id += 1
 
         emb = face_recognition.face_encodings(img,
                                               known_face_locations=[(0, img.shape[1], img.shape[0], 0)],
