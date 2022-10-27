@@ -47,6 +47,7 @@ method = 'fr_CNN'
 #method = 'cv2'
 #method = 'fr_HOG'
 
+track_who = "Andy"
 do_face_recognition = True
 do_face_track = True
 
@@ -64,8 +65,8 @@ camera_controller = CameraController()
 camera_controller.update()
 
 face_lib = FacialLibrary(   r'/home/andy/robotics/FaceRecognition/library', 
-                            tracking_tol=100,
-                            log_face_dir=r'/home/andy/robotics/FaceRecognition/logging')
+                            tracking_tol=100)#,
+                            #log_face_dir=r'/home/andy/robotics/FaceRecognition/logging')
 
 font = cudaFont()
 
@@ -126,8 +127,8 @@ while True:
                 center_x = img.width / 2
                 center_y = img.height / 2
 
-                print("Center ({}, {})".format(round(center_x), round(center_y)))
-                print("Eye    ({}, {})".format(round(mid_x), round(mid_y)))
+                # print("Center ({}, {})".format(round(center_x), round(center_y)))
+                # print("Eye    ({}, {})".format(round(mid_x), round(mid_y)))
                 
                 x_dist = np.abs(center_x - mid_x)
                 y_dist = np.abs(center_y - mid_y)
@@ -135,7 +136,7 @@ while True:
                 x_degrees = int(x_dist / center_x * pan_full)
                 y_degrees = int(y_dist / center_y * tilt_full)
 
-                print('Panning {}, Tilting {}'.format(x_degrees, y_degrees))
+                # print('Panning {}, Tilting {}'.format(x_degrees, y_degrees))
 
                 if center_x - mid_x > look_tol:
                     camera_controller.PanLeft(degrees=x_degrees, do_update=False)
@@ -148,7 +149,7 @@ while True:
                     camera_controller.TiltDown(degrees=y_degrees, do_update=False)
 
                 camera_controller.update()
-                camera_controller.dump()
+                #camera_controller.dump()
 
         if do_face_recognition:
 
@@ -165,15 +166,16 @@ while True:
 
                 face = face_lib.check_recent_face(mid_x, mid_y)
             
-                eye_w = np.abs(left_eye.x - right_eye.x)
-                eye_h = eye_w * 2
+                eye_w = np.abs(left_eye.x - right_eye.x) * 1.3
 
                 # Eyes are from the perspective of the person, not the viewer
                 # Left eye is on the right side of the screen if the person is looking at you...
+                # Face detection image must by square
                 x1 = int(right_eye.x - eye_w)
                 x2 = int(left_eye.x + eye_w)
-                y1 = int(np.min((right_eye.y, left_eye.y)) - eye_h)
-                y2 = int(np.max((right_eye.y, left_eye.y)) + eye_h)
+                w = x2 - x1
+                y1 = int(np.min((right_eye.y, left_eye.y)) - w/3)
+                y2 = y1 + w
 
                 # Do Facial Recognition
                 if face == "": #or num_frames % identify_counter == 0:
@@ -195,12 +197,14 @@ while True:
                     # Don't need this since .identify_face expects RGB already
                     #img_np_small = cv2.cvtColor(img_np_small, cv2.COLOR_RGB2BGR)
 
-                    face = face_lib.identify_face(img_np_small, nearest=True)
+                    face = face_lib.identify_face(img_np_small, nearest=False)
 
-                    face_lib.track_face(face, mid_x, mid_y)
+                    if face != "":
+                        face_lib.track_face(face, mid_x, mid_y)
+
+                cudaDrawRect(img, (x1, y1, x2, y2), (255, 0, 0, 50))
 
                 if face != "":
-                    cudaDrawRect(img, (x1, y1, x2, y2), (255, 0, 0, 50))
                     font.OverlayText(img, img.width, img.height, face, int(right_eye.x), np.max((0, int(right_eye.y-100))), font.White, font.Gray40)
                     found_faces.append(face)
 

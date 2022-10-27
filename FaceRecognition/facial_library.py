@@ -19,7 +19,8 @@ class FacialLibrary():
                         scale_factor=0.25,
                         dbscan_thresh=0.42,
                         tracking_tol=20,
-                        log_face_dir=None):
+                        log_face_dir=None,
+                        refresh_after=20):
         self._base_dir = base_dir
         self._detect_method = detect_method
         self._scale_factor = scale_factor
@@ -30,6 +31,7 @@ class FacialLibrary():
         self._encoding_method = encoding_method
         self._thresh = 0.6
         self._log_face_dir = log_face_dir
+        self._refresh_after = refresh_after
 
         self._embeddings_file = 'embeddings.pkl'
 
@@ -58,27 +60,33 @@ class FacialLibrary():
 
     def keep_faces(self, faces):
         new_current_faces = dict()
-        for face, (x, y) in self._current_faces.items():
+        for face, ((x, y), ctr) in self._current_faces.items():
             if face in faces:
-                new_current_faces[face] = (x, y)
+                new_current_faces[face] = ((x, y), ctr)
 
         self._current_faces = new_current_faces
 
     def track_face(self, face, x, y):
-        self._current_faces[face] = (x, y)
+        self._current_faces[face] = ((x, y), self._refresh_after)
 
     def check_recent_face(self, x, y):
         face_dists = []
         min_dist = 10000
         min_face = ""
-        for face, (x_, y_) in self._current_faces.items():
-            dist = math.sqrt((x - x_)**2 + (y - y_)**2)
-            if dist < min_dist:
-                min_dist = dist
-                min_face = face
-        
+        for face, ((x_, y_), ctr) in self._current_faces.items():
+            # If ctr <= 0, we won't register this as a min face and it should get
+            # removed from the dictionary when keep_faces gets called and we should
+            # try to reidentify it
+            if ctr >= 0:
+                dist = math.sqrt((x - x_)**2 + (y - y_)**2)
+                if dist < min_dist:
+                    min_dist = dist
+                    min_face = face
+            
         if min_dist < self._tracking_tol:   
-            self._current_faces[min_face] = (x, y)
+            (x_, y_), ctr = self._current_faces[min_face]
+            ctr -= 1
+            self._current_faces[min_face] = ((x, y), ctr)
             return min_face
         else:
             return ""
@@ -87,11 +95,14 @@ class FacialLibrary():
         thresh = self._thresh if thresh is None else thresh
 
         if self._log_face_dir is not None:
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            f_name = os.path.join(self._log_face_dir, '{}.jpg'.format(self._face_tracking_id))
-            print('Logging image to {}'.format(f_name))
-            cv2.imwrite(f_name, img_bgr)
-            self._face_tracking_id += 1
+            try:
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                f_name = os.path.join(self._log_face_dir, '{}.jpg'.format(self._face_tracking_id))
+                print('Logging image to {}'.format(f_name))
+                cv2.imwrite(f_name, img_bgr)
+                self._face_tracking_id += 1
+            except:
+                print('Unable to log image')
 
         emb = face_recognition.face_encodings(img,
                                               known_face_locations=[(0, img.shape[1], img.shape[0], 0)],
@@ -111,7 +122,9 @@ class FacialLibrary():
 
         else:
             for person, p_emb in self.face_embeddings.items():
-                if self.face_distance(emb, p_emb) < thresh:
+                dist = self.face_distance(emb, p_emb)
+                if dist < thresh:
+                    print('Identified {} ({})'.format(person, round(dist, 2)))
                     return person
 
         return ""
