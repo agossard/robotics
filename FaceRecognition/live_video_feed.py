@@ -35,7 +35,7 @@ while True:
                         1,
                         2)
 
-            print('Found: {}'.format(the_name))
+    print('FPS: {}'.format(round(num_frames / (time.time() - start_time))))
 
 
     #frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
