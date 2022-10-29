@@ -5,8 +5,8 @@ import face_recognition
 #from matplotlib import pyplot as plt
 import time
 import pickle
-# from sklearn.cluster import DBSCAN
-# from sklearn.neighbors import NearestNeighbors
+#from sklearn.cluster import DBSCAN
+#from sklearn.neighbors import NearestNeighbors
 import math
 
 encoding_method = 'CNN'
@@ -219,7 +219,7 @@ class FacialLibrary():
 
                 img_cropped = img[y1:y2, x1:x2]
 
-                if 'fr' in self._method:
+                if self._encoding_method == 'CNN':
                     img_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2RGB)
 
                 emb = face_recognition.face_encodings(img_cropped,
